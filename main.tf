@@ -24,13 +24,6 @@ resource "aws_s3_bucket" "lambda_bucket" {
   bucket = "lambda-code-dbs"
 }
 
-# Upload the Lambda deployment package to the S3 bucket
-resource "aws_s3_object" "lambda_package" {
-  bucket = aws_s3_bucket.lambda_bucket.id
-  key    = "lambda_function.zip"
-  source = "/Users/soumyasouravpatnaik/sandbox_project/lambda_code/lambda_function.zip"
-}
-
 # Create the IAM role for the Lambda function
 resource "aws_iam_role" "lambda_role" {
   name = "${local.function_name}_execution_role"
@@ -76,15 +69,19 @@ resource "aws_iam_role_policy_attachment" "lambda_policy_attachment" {
   role       = aws_iam_role.lambda_role.name
 }
 
-# Create the Lambda function
+# Automatically zip the lambda code
+data "archive_file" "main_lambda_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda_functions/main_lambda.py"
+  output_path = "${path.module}/lambda_functions/main_lambda.zip"
+}
+# Main lambda to control the flow
 resource "aws_lambda_function" "main_lambda" {
   function_name = local.function_name
   role          = aws_iam_role.lambda_role.arn
-  handler       = "lambda_function.lambda_handler"
-
-  s3_bucket = aws_s3_bucket.lambda_bucket.bucket
-  s3_key    = aws_s3_object.lambda_package.key
-
+  handler       = "main_lambda.lambda_handler"
+  filename      = data.archive_file.main_lambda_zip.output_path
+  timeout = 60
   runtime = "python3.8"
   environment {
     variables = {
@@ -306,15 +303,20 @@ locals {
   lambda_function_name = "ec2_launcher"
 }
 
+data "archive_file" "ec2_launcher_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda_functions/launch_ec2.py"
+  output_path = "${path.module}/lambda_functions/launch_ec2.zip"
+}
+
 resource "aws_lambda_function" "ec2_launcher" {
   function_name = local.lambda_function_name
   handler       = "launch_ec2.lambda_handler"
   runtime       = "python3.8" 
   timeout       = 60
   role = aws_iam_role.ec2_lambda_role.arn
-
-  filename = "/Users/soumyasouravpatnaik/sandbox_project/launch_ec2.zip" 
-  source_code_hash = filebase64sha256("/Users/soumyasouravpatnaik/sandbox_project/launch_ec2.zip")
+  filename = data.archive_file.ec2_launcher_zip.output_path
+  source_code_hash = filebase64sha256(data.archive_file.ec2_launcher_zip.output_path)
 }
 
 resource "aws_iam_role" "ec2_lambda_role" {
